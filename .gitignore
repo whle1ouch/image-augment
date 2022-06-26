@@ -1,1 +1,6 @@
 data/*
+.idea/vcs.xml
+.idea/image-augment.iml
+.idea/misc.xml
+.idea/inspectionProfiles/profiles_settings.xml
+.idea/modules.xml

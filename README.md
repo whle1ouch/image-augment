@@ -6,13 +6,13 @@ this is a tool for image augment, including operation such as：
 * gaussian noise: 高斯噪声
 * cutout： 随机矩形遮挡
 * dropout：随机填充（置零）
-* salt：椒盐噪声
-* cartton：动画效果
+* salt&pepper noise：椒盐噪声
+* Cartoon: 动画效果
 * blend：渐变蒙版混合
 * Gaussian blur：高斯模糊
 * motion blur： 运动模糊
-* colTemp： 改变色温
-* clahe： 自适应直方图均衡
+* color temp 改变色温
+* histogram equalization 自适应直方图均衡
 * horizontal flip： 水平翻转
 * vertical flip： 垂直方砖
 * scale：等比缩放

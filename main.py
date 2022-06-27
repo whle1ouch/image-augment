@@ -2,14 +2,10 @@ from PIL import Image
 from matplotlib import pyplot as plt
 import numpy as np
 from src.operation import *
+from src.images import *
 from skimage import transform
+import glob, os
 
 if __name__ == "__main__":
-    image_pil = Image.open("./data/2.jpg")
-    op = RandomHSV(0.4)
-    imagec_pil = op.perform(image_pil)
-    plt.subplot(1, 2, 1)
-    plt.imshow(image_pil)
-    plt.subplot(1, 2, 2)
-    plt.imshow(imagec_pil)
-    plt.show()
+    image = Image.open("./data/1.jpg")
+    

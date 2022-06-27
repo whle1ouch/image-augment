@@ -6,9 +6,8 @@ from skimage import transform
 
 if __name__ == "__main__":
     image_pil = Image.open("./data/2.jpg")
-    op = RandomPad(0.4)
+    op = RandomHSV(0.4)
     imagec_pil = op.perform(image_pil)
-    
     plt.subplot(1, 2, 1)
     plt.imshow(image_pil)
     plt.subplot(1, 2, 2)

@@ -6,11 +6,13 @@ from src.images import *
 from skimage import transform
 import glob, os
 from xml.etree import ElementTree as ET
-from src.images import NameDataset
+from src.images import ImageProcesser
 
 
 if __name__ == "__main__":
     path = "./data/class"
-    a = NameDataset(path)
-    print(a.images)
-    print(a.labels)
+    p = ImageProcesser(path, n_job=2, save_to_disk=True)
+    print(p.image_sources)
+    print(p.labels)
+    b = p.process()
+    print(b)

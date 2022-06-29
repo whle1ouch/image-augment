@@ -1,3 +1,4 @@
+from zipfile import Path
 from PIL import Image
 from matplotlib import pyplot as plt
 import numpy as np
@@ -10,9 +11,9 @@ from src.images import ImageProcesser
 
 
 if __name__ == "__main__":
-    path = "./data/voc/Annotations/2007_000027.xml"
-    with open(path, encoding="utf-8") as file:
-        tree = ET.parse(file)
-    root = tree.getroot()
-    f = root.find("filename").text
-    print(f)
+    path = "./data/voc/"
+    p = VOCDataset(path, label_type="segement_class")
+    print(p)
+    for image in p.image_sources:
+        print(image)
+    

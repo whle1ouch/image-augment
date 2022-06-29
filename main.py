@@ -10,9 +10,9 @@ from src.images import ImageProcesser
 
 
 if __name__ == "__main__":
-    path = "./data/class"
-    p = ImageProcesser(path, n_job=2, save_to_disk=True)
-    print(p.image_sources)
-    print(p.labels)
-    b = p.process()
-    print(b)
+    path = "./data/voc/Annotations/2007_000027.xml"
+    with open(path, encoding="utf-8") as file:
+        tree = ET.parse(file)
+    root = tree.getroot()
+    f = root.find("filename").text
+    print(f)

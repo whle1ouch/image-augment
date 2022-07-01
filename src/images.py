@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 class ImageSource:
     
     path: str = None
-    pil: str = None
+    pil: Image = None
     label: str = None
     bounding_box: list = None
     pose: list = None
@@ -42,8 +42,6 @@ class ImageSource:
         
         
 
-
-
 class ImageProcesser:
     
     _voc_annotation = "Annotations"
@@ -67,8 +65,6 @@ class ImageProcesser:
         self.n_job = n_job
         self.output_target_file = None
         self.image_sources = list()
-        
-    
         
 
     def scan_directory(self, base_directory):
@@ -359,7 +355,7 @@ class ImageProcesser:
                         pose_parts[j][0] = self.class_label.get(pose_parts[j][0])
                     target[i][1] = pose_parts
         if self.target_type in ("segement_class", "segment_object"):
-            target = Image.oepn(target)
+            target = Image.open(target)
         return target
         
     def __repr__(self):
@@ -387,8 +383,8 @@ class ImageProcesser:
         else:
             image_sources = [random.choice() for _ in range(sample)]
         n_job = int(self.n_job)
-        images = []
-        targets = []
+        images = list()
+        targets = list()
         if self.save_to_disk:
             self._check_output_directory()
         if n_job == 1:
@@ -453,16 +449,6 @@ class ImageProcesser:
                             batch_labels.append(image_label)
             yield batch_images, batch_labels
         
-            
-    
-    @staticmethod
-    def resize(image, size):
-        w, h = image.size
-        iw, ih = size
-        scale = min(iw / w, ih / h)
-        new_w, new_h = round(scale * w), round(scale * h)
-        resized = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
-        new_image = Image.new(mode=image.mode, size=size)
-        new_image.paste(resized, ((iw - new_w) // 2, (ih - new_h) // 2))
-        return new_image
+                
+
         

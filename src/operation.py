@@ -11,6 +11,10 @@ class Operation(object):
     
     def perform(self, image):
         raise ValueError("operation is not implemented.")
+    
+    def perform_with_box(self, image, boxes):
+        new_image = self.perform(image)
+        return new_image, boxes
         
     def perform_opration(self, images):
         performed_images = []
@@ -24,17 +28,18 @@ class RandomNoise(Operation):
     def __init__(self, p, max_value=None):
         super().__init__(p)
         if max_value is None:
-            max_value = 20
+            max_value = 10
         elif max_value < 0:
             raise ValueError("the max value that used to generate random noise shoule be positive.")
         self.max_value = int(max_value)
     
     def perform(self, image):
         arr = np.array(image)
-        noise = np.random.randint(0, self.var, size=arr.shape)
+        noise = np.random.randint(0, self.max_value, size=arr.shape)
         out_arr = image + noise
         out = Image.fromarray(out_arr.astype(np.uint8), mode=image.mode)
         return out
+
 
 
 class GaussianNoise(Operation):
@@ -224,32 +229,35 @@ class MotionBlur(Operation):
             degree = 10
         if angle is None:
             angle = 20
-        self.degree = degree 
-        self.angle = angle
+        M = cv2.getRotationMatrix2D((degree / 2, degree / 2), angle, 1)
+        motion_blur_kernel = np.diag(np.ones(degree))
+        motion_blur_kernel = cv2.warpAffine(motion_blur_kernel, M, (degree, degree))
+        self.motion_blur_kernel = motion_blur_kernel / degree
     
     
     def perform(self, image):
         arr = np.array(image)
-        M = cv2.getRotationMatrix2D((self.degree / 2, self.degree / 2), self.angle, 1)
-        motion_blur_kernel = np.diag(np.ones(self.degree))
-        motion_blur_kernel = cv2.warpAffine(motion_blur_kernel, M, (self.degree, self.degree))
-        motion_blur_kernel = motion_blur_kernel / self.degree
-        out_arr = cv2.filter2D(arr, -1, motion_blur_kernel)
+        out_arr = cv2.filter2D(arr, -1, self.motion_blur_kernel)
         out = Image.fromarray(out_arr, mode=image.mode)
         return out
 
 
 
 class RandomColorTemp(Operation):
+    
+    def __init__(self, p):
+        super().__init__(p)
+        self.ratio = 1.
+        
     #TODO: is this right?
     def perform(self, image):
+        self.ratio = np.random.uniform(0.8, 1.2)
         # color temp: lambda r,g,b: r-b/2 - g -256
         arr = np.array(image)
         out_arr = arr.copy()
-        ratio = np.random.uniform(0.8, 1.2)
         # out[:,:,0] = out[:,:,0] + level
         # out[:,:,1] = out[:,:,1] - level 
-        out_arr[:,:,2] = out_arr[:,:,2] * ratio
+        out_arr[:,:,2] = out_arr[:,:,2] * self.ratio
         out = Image.fromarray(out_arr.astype(np.uint8), mode=image.mode)
         return out 
         
@@ -265,12 +273,31 @@ class HorizontalFlip(Operation):
     def perform(self, image):
         out = ImageOps.mirror(image)
         return out
+    
+    def perform_with_box(self, image, boxes):
+        out = self.perform(image)
+        w, _ = image.size
+        flip_box = []
+        for box in boxes:
+            xmin, ymin, xmax, ymax = box
+            flip_box.append((w - xmax, ymin, w-xmin, ymax))
+        return out, flip_box
+    
         
 class VerticalFlip(Operation):
     
     def perform(self, image):
         out = ImageOps.flip(image)
         return out
+    
+    def perform_with_box(self, image, boxes):
+        out = self.perform(image)
+        _, h = image.size
+        flip_box = []
+        for box in boxes:
+            xmin, ymin, xmax, ymax = box
+            flip_box.append((xmin, h - ymax, xmax, h - ymin))
+        return out, flip_box
         
 class Scale(Operation):
     
@@ -295,18 +322,34 @@ class Scale(Operation):
         else:
             out = resized
         return out
+    
+    def perform_with_box(self, image, boxes):
+        out = self.perform(image)
+        w, h = image.size
+        scale_box = []
+        if self.keep_shape:
+            shift_x , shift_y = int((1-self.scale_factor) * w) // 2, int((1-self.scale_factor) * h) // 2
+        else:
+            shift_x, shift_y = 0, 0
+        for box in boxes:
+            xmin, ymin, xmax, ymax = map(lambda x: int(x * self.scale_factor), box)
+            scale_box.append((xmin + shift_x, ymin+shift_y, xmax+shift_x, ymax+shift_y))
+        return out, scale_box
+                
+        
 
         
 class RandomScale(Operation):
     
     def __init__(self, p, keep_shape=True):
         super().__init__(p)
+        self.scale_w = np.random.uniform(0.5, 1.0) 
+        self.scale_h = np.random.uniform(0.5, 1.0)
         self.keep_shape = keep_shape
     
     def perform(self, image):
         w, h = image.size
-        scale_w, scale_h = np.random.uniform(0.5, 1.0), np.random.uniform(0.5, 1.0)
-        new_w, new_h = int(w * scale_w), int(h * scale_h)
+        new_w, new_h = int(w * self.scale_w), int(h * self.scale_h)
         resized = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
         if self.keep_shape:
             gray_color = ImageColor.getcolor('gray', image.mode)
@@ -315,44 +358,86 @@ class RandomScale(Operation):
         else:
             out = resized
         return out
+    
+    def perform_with_box(self, image, boxes):
+        out = self.perform(image)
+        w, h = image.size
+        scale_box = []
+        if self.keep_shape:
+            shift_x , shift_y = int((1-self.scale_w) * w) // 2, int((1-self.scale_h) * h) // 2
+        else:
+            shift_x, shift_y = 0, 0
+        for box in boxes:
+            xmin, ymin, xmax, ymax = box
+            xmin, xmax = int(xmin * self.scale_w), int(xmax * self.scale_w) 
+            ymin, ymax = int(ymin * self.scale_h), int(ymax * self.scale_h)
+            scale_box.append((xmin + shift_x, ymin+shift_y, xmax+shift_x, ymax+shift_y))
+        return out, scale_box
+    
+    
         
         
 class RandomTranslation(Operation):
     
+    def __init__(self, p, size=None):
+        super().__init__(p)
+        self.trans_w = None
+        self.trans_h = None
+     
     def perform(self, image):
         w, h = image.size
-        trans_w = np.random.randint(-w // 4 + 1, w // 4)
-        trans_h = np.random.randint(-h // 4 + 1, h // 4)
+        if self.trans_w is None or abs(self.trans_w) > w // 4 or abs(self.trans_h) > h // 4:
+            self.trans_w = np.random.randint(-w // 4 + 1, w // 4)
+            self.trans_h = np.random.randint(-h // 4 + 1, h // 4)
         # positive: out[trans_w: w] = image[0: (w-trans_w)]
         # negetive: out[0 :(w+trans_w)] = image[-trans_w: w]
         arr = np.array(image)
         out_arr = np.ones_like(arr, dtype=np.uint8) * 80
-        out_arr[max(0, trans_h): min(h, h+trans_h),max(0, trans_w): min(w, w+trans_w), ...] = arr[
-                max(0, -trans_h): min(h-trans_h, h), max(0, -trans_w): min(w-trans_w, w),...]
+        out_arr[max(0, self.trans_h): min(h, h + self.trans_h),max(0, self.trans_w): min(w, w+ self.trans_w), ...] = arr[
+                max(0, -self.trans_h): min(h-self.trans_h, h), max(0, -self.trans_w): min(w-self.trans_w, w),...]
         out = Image.fromarray(out_arr, mode=image.mode)
         return out
         
-        
+    def perform_with_box(self, image, boxes):
+        out = self.perform(image)
+        w, h = image.size
+        trans_boxes = []
+        for box in boxes:
+            xmin, ymin, xmax, ymax = box
+            xmin, xmax = max(xmin+self.trans_w, 0), min(xmax+self.trans_w, w-1)
+            ymin, ymax = max(ymin+self.trans_h, 0), min(ymax+self.trans_h, h-1)
+            if xmin < xmax and ymin < ymax:
+                trans_boxes.append((xmin, ymin, xmax, ymax))
+            
+        return out, trans_boxes 
 class RandomColor(Operation):
     
+    def __init__(self, p):
+        super().__init__(p)
+        self.factor = 1
+    
     def perform(self, image):
-        factor = np.random.uniform(0.5, 1.5)
+        self.factor = np.random.uniform(0.5, 1.5)
         enhencer = ImageEnhance.Color(image)
-        out = enhencer.enhance(factor)
+        out = enhencer.enhance(self.factor)
         return out
     
 
 class RandomHSV(Operation):
     
+    def __init__(self, p):
+        super().__init__(p)
+        self.hf = np.random.uniform(0.9, 1.1)
+        self.sf = np.random.uniform(0.8, 1.2)
+        self.vf = np.random.uniform(0.8, 1.2)
+        
+    
     def perform(self, image):
         hsv =  image.convert("HSV")
         arr = np.array(hsv).astype(np.float32)
-        hf = np.random.uniform(0.9, 1.1)
-        sf = np.random.uniform(0.8, 1.2)
-        vf = np.random.uniform(0.8, 1.2)
-        arr[..., 0] *= hf
-        arr[..., 1] *= sf
-        arr[..., 2] *= vf
+        arr[..., 0] *= self.hf
+        arr[..., 1] *= self.sf
+        arr[..., 2] *= self.vf
         arr = arr.astype(np.uint8)
         out_hsv = Image.fromarray(arr, mode="HSV")
         out = out_hsv.convert(image.mode)
@@ -466,10 +551,11 @@ class PerspectiveTransform(Operation):
         A = np.matrix(matrix, dtype=np.float)
         B = np.array(original_plane).reshape(8)
         perspective_skew_coefficients_matrix = np.dot(np.linalg.pinv(A), B)
-        perspective_skew_coefficients_matrix = np.array(perspective_skew_coefficients_matrix).reshape(8)
+        self.perspective_skew_coefficients_matrix = np.array(perspective_skew_coefficients_matrix).reshape(8)
+        print(self.perspective_skew_coefficients_matrix)
         out = image.transform(image.size,
                               Image.PERSPECTIVE,
-                              perspective_skew_coefficients_matrix,
+                              self.perspective_skew_coefficients_matrix,
                               resample=Image.BICUBIC)
         return out
         

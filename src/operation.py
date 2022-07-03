@@ -1,4 +1,6 @@
+from re import A
 from ssl import HAS_SNI
+from tkinter import W
 from PIL import Image, ImageEnhance, ImageOps, ImageFilter, ImageColor
 import numpy as np
 import cv2
@@ -8,22 +10,43 @@ class Operation(object):
     
     def __init__(self, p):
         self.probability = p
-    
+        
     def perform(self, image):
         raise ValueError("operation is not implemented.")
+    
+    def perform_batch(self, images):
+        new_images = list()
+        for image in images:
+            new_images.append(self.perform(image))
+        return new_images
+    
+    def perform_with_box(self, image, boxes):
+        raise ValueError("""this operation may change the coordinate of each pixel in the image, 
+                          and this function is not implemented.""")
+         
+    def perform_with_segement(self, image, segement):
+        raise ValueError("""this operation may change the coordinate of each pixel in the image, 
+                          and this function is not implemented.""")
+         
+    
+class PixelOperation(Operation):
     
     def perform_with_box(self, image, boxes):
         new_image = self.perform(image)
         return new_image, boxes
+    
+    def perform_with_segement(self, image, segement):
+        out = self.perform(image)
+        return image, segement
         
-    def perform_opration(self, images):
-        performed_images = []
-        for image in images:
-            performed_images.append(self.perform(image))
-        return performed_images
+
+class MorphOperation(Operation):
+    
+    ...
+    
     
 
-class RandomNoise(Operation):
+class RandomNoise(PixelOperation):
     
     def __init__(self, p, max_value=None):
         super().__init__(p)
@@ -42,7 +65,7 @@ class RandomNoise(Operation):
 
 
 
-class GaussianNoise(Operation):
+class GaussianNoise(PixelOperation):
     
     def __init__(self, p, mean=None, std=None):
         super().__init__(p)
@@ -61,7 +84,7 @@ class GaussianNoise(Operation):
         return out
 
 
-class CutOut(Operation):
+class CutOut(PixelOperation):
     
     def __init__(self, p, num=None, rect_ratio=None):
         super().__init__(p)
@@ -97,7 +120,7 @@ class CutOut(Operation):
         return out
             
         
-class DropOut(Operation):
+class DropOut(PixelOperation):
     
     def __init__(self, p, rate=None):
         super().__init__(p)
@@ -117,7 +140,7 @@ class DropOut(Operation):
         return out
         
         
-class SaltPepperNoise(Operation):
+class SaltPepperNoise(PixelOperation):
     
     def __init__(self, p, amount=None, salt_vs_pepper=None):
         super().__init__(p)
@@ -144,7 +167,7 @@ class SaltPepperNoise(Operation):
         return out
 
 
-class Cartoon(Operation):
+class Cartoon(PixelOperation):
     
     def __init__(self, p, sigma_s=None, sigma_r=None):
         super().__init__(p)
@@ -162,7 +185,7 @@ class Cartoon(Operation):
         return out 
         
 
-class Blend(Operation):
+class Blend(PixelOperation):
     
     def __init__(self, p, direct="right", mask_weight=None):
         super().__init__(p)
@@ -198,7 +221,7 @@ class Blend(Operation):
         return out
 
 
-class GaussianBlur(Operation):
+class GaussianBlur(PixelOperation):
     
     def __init__(self, p, ksize=None, sigma_X=None):
         super().__init__(p)
@@ -221,7 +244,7 @@ class GaussianBlur(Operation):
         return out
 
 
-class MotionBlur(Operation):
+class MotionBlur(PixelOperation):
     
     def __init__(self, p, degree=None, angle=None):
         super().__init__(p)
@@ -243,7 +266,7 @@ class MotionBlur(Operation):
 
 
 
-class RandomColorTemp(Operation):
+class RandomColorTemp(PixelOperation):
     
     def __init__(self, p):
         super().__init__(p)
@@ -262,13 +285,13 @@ class RandomColorTemp(Operation):
         return out 
         
                 
-class HistogramEqualization(Operation):
+class HistogramEqualization(PixelOperation):
     
     def perform(self, image):
         out = ImageOps.equalize(image)
         return out
         
-class HorizontalFlip(Operation):
+class HorizontalFlip(MorphOperation):
     
     def perform(self, image):
         out = ImageOps.mirror(image)
@@ -283,8 +306,14 @@ class HorizontalFlip(Operation):
             flip_box.append((w - xmax, ymin, w-xmin, ymax))
         return out, flip_box
     
+    def perform_with_segement(self, image, segement):
+        out, out_segement = self.perform_batch([image, segement])
+        return out, out_segement
+    
+    
+    
         
-class VerticalFlip(Operation):
+class VerticalFlip(MorphOperation):
     
     def perform(self, image):
         out = ImageOps.flip(image)
@@ -298,8 +327,12 @@ class VerticalFlip(Operation):
             xmin, ymin, xmax, ymax = box
             flip_box.append((xmin, h - ymax, xmax, h - ymin))
         return out, flip_box
+
+    def perform_with_segement(self, image, segement):
+        out, out_segement = self.perform_batch([image, segement])
+        return out, out_segement
         
-class Scale(Operation):
+class Scale(MorphOperation):
     
     def __init__(self, p, scale_factor=None, keep_shape=True):
         super().__init__(p)
@@ -314,7 +347,7 @@ class Scale(Operation):
     def perform(self, image):
         w, h = image.size 
         new_w, new_h =  int(w * self.scale_factor), int(h * self.scale_factor)
-        resized = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
+        resized = image.resize((new_w, new_h), Image.BICUBIC)
         if self.keep_shape:
             gray_color = ImageColor.getcolor('gray', image.mode)
             out = Image.new(image.mode, image.size, gray_color)
@@ -335,29 +368,45 @@ class Scale(Operation):
             xmin, ymin, xmax, ymax = map(lambda x: int(x * self.scale_factor), box)
             scale_box.append((xmin + shift_x, ymin+shift_y, xmax+shift_x, ymax+shift_y))
         return out, scale_box
+    
+    def perform_with_segement(self, image, segement):
+        out, out_segement = self.perform_batch([image, segement])
+        return out, out_segement
                 
-        
 
         
-class RandomScale(Operation):
+class RandomScale(MorphOperation):
     
     def __init__(self, p, keep_shape=True):
         super().__init__(p)
-        self.scale_w = np.random.uniform(0.5, 1.0) 
-        self.scale_h = np.random.uniform(0.5, 1.0)
         self.keep_shape = keep_shape
-    
-    def perform(self, image):
+        self.new_w = 0
+        self.new_h = 0
+        
+    def random_sample(self, image):
         w, h = image.size
-        new_w, new_h = int(w * self.scale_w), int(h * self.scale_h)
-        resized = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
+        scale_w = np.random.uniform(0.5, 1.0) 
+        scale_h = np.random.uniform(0.5, 1.0)
+        self.new_w, self.new_h = int(w * scale_w), int(h * scale_h)
+        
+    def do(self, image):
+        if self.new_w == 0 or self.new_h == 0:
+            return image
+        w, h = image.size
+        resized = image.resize((self.new_w, self.new_h), Image.BICUBIC)
         if self.keep_shape:
             gray_color = ImageColor.getcolor('gray', image.mode)
             out = Image.new(image.mode, image.size, gray_color)
-            out.paste(resized, ((w - new_w) // 2, (h - new_h)//2))
+            out.paste(resized, ((w - self.new_w) // 2, (h - self.new_h) // 2))
         else:
             out = resized
         return out
+        
+    
+    def perform(self, image):
+        self.random_sample(image)
+        return self.do(image)
+
     
     def perform_with_box(self, image, boxes):
         out = self.perform(image)
@@ -374,29 +423,38 @@ class RandomScale(Operation):
             scale_box.append((xmin + shift_x, ymin+shift_y, xmax+shift_x, ymax+shift_y))
         return out, scale_box
     
+    def perform_with_segement(self, image, segement):
+        self.random_sample(image)
+        return self.do(image), self.do(segement)
+    
     
         
         
-class RandomTranslation(Operation):
+class RandomTranslation(MorphOperation):
     
-    def __init__(self, p, size=None):
+    def __init__(self, p):
         super().__init__(p)
-        self.trans_w = None
-        self.trans_h = None
-     
-    def perform(self, image):
+        self.trans_w = 0
+        self.trans_h = 0
+        
+    def random_sample(self, image):
         w, h = image.size
-        if self.trans_w is None or abs(self.trans_w) > w // 4 or abs(self.trans_h) > h // 4:
-            self.trans_w = np.random.randint(-w // 4 + 1, w // 4)
-            self.trans_h = np.random.randint(-h // 4 + 1, h // 4)
-        # positive: out[trans_w: w] = image[0: (w-trans_w)]
-        # negetive: out[0 :(w+trans_w)] = image[-trans_w: w]
+        self.trans_w = np.random.randint(-w // 4 + 1, w // 4)
+        self.trans_h = np.random.randint(-h // 4 + 1, h // 4)
+        
+    def do(self, image):
+        w, h = image.size
         arr = np.array(image)
         out_arr = np.ones_like(arr, dtype=np.uint8) * 80
         out_arr[max(0, self.trans_h): min(h, h + self.trans_h),max(0, self.trans_w): min(w, w+ self.trans_w), ...] = arr[
                 max(0, -self.trans_h): min(h-self.trans_h, h), max(0, -self.trans_w): min(w-self.trans_w, w),...]
         out = Image.fromarray(out_arr, mode=image.mode)
-        return out
+        return out 
+        
+     
+    def perform(self, image):
+        self.random_sample(image)
+        return self.do(image)
         
     def perform_with_box(self, image, boxes):
         out = self.perform(image)
@@ -408,9 +466,13 @@ class RandomTranslation(Operation):
             ymin, ymax = max(ymin+self.trans_h, 0), min(ymax+self.trans_h, h-1)
             if xmin < xmax and ymin < ymax:
                 trans_boxes.append((xmin, ymin, xmax, ymax))
-            
         return out, trans_boxes 
-class RandomColor(Operation):
+    
+    def perform_with_segement(self, image, segement):
+        self.random_sample(image)
+        return self.do(image), self.do(segement)
+    
+class RandomColor(PixelOperation):
     
     def __init__(self, p):
         super().__init__(p)
@@ -423,21 +485,18 @@ class RandomColor(Operation):
         return out
     
 
-class RandomHSV(Operation):
-    
-    def __init__(self, p):
-        super().__init__(p)
-        self.hf = np.random.uniform(0.9, 1.1)
-        self.sf = np.random.uniform(0.8, 1.2)
-        self.vf = np.random.uniform(0.8, 1.2)
+class RandomHSV(PixelOperation):
         
     
     def perform(self, image):
         hsv =  image.convert("HSV")
+        hf = np.random.uniform(0.9, 1.1)
+        sf = np.random.uniform(0.8, 1.2)
+        vf = np.random.uniform(0.8, 1.2)
         arr = np.array(hsv).astype(np.float32)
-        arr[..., 0] *= self.hf
-        arr[..., 1] *= self.sf
-        arr[..., 2] *= self.vf
+        arr[..., 0] *= hf
+        arr[..., 1] *= sf
+        arr[..., 2] *= vf
         arr = arr.astype(np.uint8)
         out_hsv = Image.fromarray(arr, mode="HSV")
         out = out_hsv.convert(image.mode)
@@ -445,7 +504,7 @@ class RandomHSV(Operation):
 
 
     
-class Sharpe(Operation):
+class Sharpe(PixelOperation):
     
     def perform(self, image):
         enhencer = ImageEnhance.Sharpness(image)
@@ -453,7 +512,7 @@ class Sharpe(Operation):
         return out
         
                 
-class PerspectiveTransform(Operation):
+class PerspectiveTransform(MorphOperation):
     
     
     def __init__(self, p, skew_type="random", magnitude=None):
@@ -467,9 +526,9 @@ class PerspectiveTransform(Operation):
             magnitude = 0.5
         self.skew_type = skew_type
         self.magnitude = magnitude
+        self._matrix = None
         
-    
-    def perform(self, image):
+    def random_sample(self, image):
         w, h = image.size
         x1 = 0
         x2 = h
@@ -479,13 +538,12 @@ class PerspectiveTransform(Operation):
         max_skew_amount = max(w, h)
         max_skew_amount = int(np.ceil(max_skew_amount * self.magnitude))
         skew_amount = np.random.randint(1, max_skew_amount+1)
-        
         if self.skew_type in ("tilt", "tilt_left_right", "tilt_top_bottom"):
             if self.skew_type == "tilt":
                 skew_direction = np.random.randint(0, 4)
             elif self.skew_type == "tilt_left_right":
                 skew_direction = np.random.randint(0, 2)
-            elif self.skew_type == "tilt_top_bottom":
+            else:
                 skew_direction = np.random.randint(2, 4)
             if skew_direction == 0:
                 # Left Tilt
@@ -544,23 +602,54 @@ class PerspectiveTransform(Operation):
             corners["bottom_right"] = (y2 + np.random.randint(1, skew_amount+1), x2 + np.random.randint(1, skew_amount+1))
             corners["bottom_left"] = (y1 - np.random.randint(1, skew_amount+1), x2 + np.random.randint(1, skew_amount+1))
             new_plane = [corners["top_left"], corners["top_right"], corners["bottom_right"], corners["bottom_left"]]
-        matrix = []
-        for p1, p2 in zip(new_plane, original_plane):
-            matrix.append([p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]])
-            matrix.append([0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]])
-        A = np.matrix(matrix, dtype=np.float)
-        B = np.array(original_plane).reshape(8)
-        perspective_skew_coefficients_matrix = np.dot(np.linalg.pinv(A), B)
-        self.perspective_skew_coefficients_matrix = np.array(perspective_skew_coefficients_matrix).reshape(8)
-        print(self.perspective_skew_coefficients_matrix)
-        out = image.transform(image.size,
-                              Image.PERSPECTIVE,
-                              self.perspective_skew_coefficients_matrix,
-                              resample=Image.BICUBIC)
+        original_plane = np.array(original_plane, dtype=np.float32)
+        new_plane = np.array(new_plane, dtype=np.float32)
+        self._matrix = cv2.getPerspectiveTransform(original_plane, new_plane)
+        
+    def do(self, image):
+        if self._matrix is None:
+            return image
+        arr = np.array(image)
+        img_warp = cv2.warpPerspective(arr, self._matrix, image.size)
+        out = Image.fromarray(img_warp, mode=image.mode)
         return out
         
         
-class RandomContrast(Operation):
+        
+    
+    def perform(self, image):
+        self.random_sample(image)
+        return self.do(image)
+        
+    
+    def perform_with_box(self, image, boxes):
+        out = self.perform(image)
+        perspective_box = list()
+        w, h = image.size
+        for box in boxes:
+            left, top, right, bottom = box
+            points = np.array([[left, top], [left, bottom], [right, top], [right, bottom]], dtype=np.float32)
+            new_points = cv2.perspectiveTransform(points.reshape((-1, 1, 2)), self._matrix)
+            new_points = new_points.reshape((4, 2))
+            print(len(new_points), len(new_points[0]))
+            left = min(new_points[0, 0], new_points[1, 0])
+            top = min(new_points[0, 1], new_points[2, 1])
+            right = max(new_points[2, 0], new_points[3, 0])
+            bottom = max(new_points[1, 1], new_points[3, 1])
+            left, right = max(0, left), min(right, w-1)
+            top, bottom = max(0, top), min(bottom, h-1)
+            if left >= right or top >= bottom:
+                continue
+            perspective_box.append((left, top, right, bottom))
+        return out, perspective_box
+    
+    def perform_with_segement(self, image, segement):
+        self.random_sample(image)
+        return self.do(image), self,do(segement)
+             
+               
+        
+class RandomContrast(PixelOperation):
     
     def perform(self, image):
         factor = np.random.uniform(0.5, 1.5)
@@ -569,13 +658,13 @@ class RandomContrast(Operation):
         return out
         
         
-class EdgeEnhence(Operation):
+class EdgeEnhence(PixelOperation):
     
     def perform(self, image):
         out = image.filter(ImageFilter.EDGE_ENHANCE)
         return out
         
-class RandomBright(Operation):
+class RandomBright(PixelOperation):    
     
     def perform(self, image):
         factor = np.random.uniform(0.7, 1.3)
@@ -583,57 +672,152 @@ class RandomBright(Operation):
         out = enhencer.enhance(factor)
         return out
         
-class MaxPooling(Operation):
+class MaxPooling(PixelOperation):
     
-    def perform(self, image, ksize=5):
-        out = image.filter(ImageFilter.MaxFilter(ksize))
+    def __init__(self, p, ksize=5):
+        super().__init__(p)
+        self.ksize = ksize
+    
+    def perform(self, image):
+        out = image.filter(ImageFilter.MaxFilter(self.ksize))
         return out
         
         
-class MedianPooling(Operation):
+class MedianPooling(PixelOperation):
     
-    def perform(self, image, ksize=5):
-        out = image.filter(ImageFilter.MedianFilter(ksize))
+    def __init__(self, p, ksize=5):
+        super().__init__(p)
+        self.ksize = ksize
+    
+    def perform(self, image):
+        out = image.filter(ImageFilter.MedianFilter(self.ksize))
         return out
         
         
+class Crop(Operation):
+    
+    def __init__(self, p, box, shift=False):
+        super().__init__(p)
+        if len(box) != 4:
+            raise ValueError("""crop box should be a list or tuple with 4 elements such as (left, top, right, bottom), 
+                             which means the cropping percentage of each direction""")
+        self._crop_left, self._crop_top, self._crop_right, self._crop_bottom = box
+        if shift:
+            self._shift_w = np.random.uniform(-self._crop_left, self._crop_right)
+            self._shift_h = np.random.uniform(-self._crop_top, self._crop_bottom)
+        else:
+            self._shift_w = 0
+            self._shift_h = 0
+        
+    def perform(self, image):
+        w, h = image.size
+        left_crop, right_crop = int(w * self._crop_left), int(w * self._crop_right)
+        top_crop, bottom_crop = int(h * self._crop_top), int(h * self._crop_bottom)
+        croped = image.crop((left_crop, top_crop, w - right_crop, h - bottom_crop))
+        w_shift, h_shift = int(w * self._shift_w), int(h * self._shift_h)
+        gray_color = ImageColor.getcolor('gray', image.mode)
+        out = Image.new(mode=image.mode, size=(w, h), color=gray_color)
+        out.paste(croped, (left_crop + w_shift, top_crop + h_shift))
+        return out
+    
+    def perform_with_box(self, image, boxes):
+        w, h = image.size
+        left_crop, right_crop = int(w * self._crop_left), int(w * self._crop_right)
+        top_crop, bottom_crop = int(h * self._crop_top), int(h * self._crop_bottom)
+        croped = image.crop((left_crop, top_crop, w - right_crop, h - bottom_crop))
+        w_shift, h_shift = int(w * self._shift_w), int(h * self._shift_h)
+        gray_color = ImageColor.getcolor('gray', image.mode)
+        out = Image.new(mode=image.mode, size=(w, h), color=gray_color)
+        out.paste(croped, (left_crop + w_shift, top_crop + h_shift))
+        crop_boxes = []
+        for box in boxes:
+            left, top, right, bottom = box
+            left, right = max(left, left_crop), min(right, w - right_crop)
+            top, bottom = max(top, top_crop), min(bottom, h - bottom_crop)
+            if left >= right or top >= bottom:
+                continue
+            left, right = left + w_shift, right + w_shift
+            top, bottom = top + h_shift, bottom + h_shift
+            crop_boxes.append((left, top, right, bottom))
+        return out, crop_boxes
+    
+    def perform_with_segement(self, image, segement):
+        out, out_segement = self.perform_batch([image, segement])
+        return out, out_segement
+        
+        
+
 class RandomCrop(Operation):
     
-    def __init__(self, p, centre=True):
+    def __init__(self, p, percentage=0.4, centre=False, shift=False):
         super().__init__(p)
+        self.percentage = percentage
         self.centre = centre
+        self.shift = shift
+        self._crop_left = 0
+        self._crop_right = 0
+        self._crop_top = 0
+        self._crop_bottom = 0
+        self._shift_w = 0
+        self._shift_h = 0
     
-    def perform(self, image):
-        ratio = np.random.uniform(0.5, 0.9)
+    def random_sample(self, image):
         w, h = image.size
-        w_new, h_new = int(w * ratio), int(h * ratio)
-        left_shift = np.random.randint(0, w-w_new)
-        down_shift = np.random.randint(0, h-h_new)
         if self.centre:
-            out = image.crop(((w/2)-(w_new/2), (h/2)-(h_new/2), (w/2)+(w_new/2), (h/2)+(h_new/2)))
+            crop_percentages = np.random.uniform(0, self.percentage, size=(2, ))
+            self._crop_left = self._crop_right = int(crop_percentages[0] * w) // 2
+            self._crop_top =  self._crop_bottom = int(crop_percentages[0] * h) // 2
         else:
-            out = image.crop((left_shift, down_shift, w_new + left_shift, h_new + down_shift))
+            crop_percentages = np.random.uniform(0, self.percentage / 2, size=(4, ))
+            self._crop_left = int(crop_percentages[0] * w )
+            self._crop_top = int(crop_percentages[1] * h) 
+            self._crop_right = int(crop_percentages[2] * w)
+            self._crop_bottom = int(crop_percentages[3] * h)
+        if self.shift:
+            self._shift_w = np.random.randint(-self._crop_left, self._crop_right)
+            self._shift_h = np.random.randint(-self._crop_top, self._crop_bottom)
+        else:
+            self._shift_w = 0
+            self._shift_h = 0
+            
+    def do(self, image):
+        w, h = image.size
+        croped = image.crop((self._crop_left, self._crop_top, w - self._crop_right, h - self._crop_bottom))
+        gray_color = ImageColor.getcolor('gray', image.mode)
+        out = Image.new(mode=image.mode, size=(w, h), color=gray_color)
+        out.paste(croped, (self._crop_left + self._shift_w, self._crop_top + self._shift_h))
         return out
-        
-    
-        
-class RandomPad(Operation):
-    
-    def __init__(self, p, centre=True):
-        super().__init__(p)
-        self.centre = centre
+
     
     def perform(self, image):
-        cut_ratio = np.random.uniform(0.05, 0.2)
+        self.random_sample(image)
+        return self.do(image)
+    
+    def perform_with_box(self, image, boxes):
+        self.random_sample(image)
+        out = self.perform(image)
         w, h = image.size
-        w_cut, h_cut = int(w * cut_ratio), int(h * cut_ratio)
-        arr = np.array(image)
-        out_arr = np.ones_like(arr, dtype=np.uint8) * 80
-        if self.centre:
-            w_shift, h_shift = w_cut // 2, h_cut // 2
-            print(h_cut)
-            out_arr[h_shift : h - h_shift, w_shift : w - w_shift, ...] = arr[h_shift : h - h_shift, w_shift : w - w_shift, ...]
-        else:
-            out_arr[: h - h_cut, : w - w_cut,  ...] = arr[: h - h_cut, : w - w_cut, ...]
-        out = Image.fromarray(out_arr, mode=image.mode)
-        return out 
+        crop_boxes = []
+        for box in boxes:
+            left, top, right, bottom = box
+            left, right = max(left, self._crop_left), min(right, w - self._crop_right)
+            top, bottom = max(top, self._crop_top), min(bottom, h - self._crop_bottom)
+            if left >= right or top >= bottom:
+                continue
+            left, right = left + self._shift_w, right + self._shift_w
+            top, bottom = top + self._shift_h, bottom + self._shift_h
+            crop_boxes.append((left, top, right, bottom))
+        return out, crop_boxes
+    
+    def perform_with_segement(self, image, segement):
+        self.random_sample()
+        return self.do(image), self.do(segement)
+        
+        
+
+        
+            
+        
+        
+    
+        

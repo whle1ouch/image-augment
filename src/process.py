@@ -7,6 +7,8 @@ from xml.etree import ElementTree as ET
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 
+from .operation import PixelOperation
+
 
 @dataclass
 class ImageSource:
@@ -325,11 +327,7 @@ class ImageProcesser:
         else:
             raise ValueError("no image data.")
         target = self.get_target(image_source)
-        for operation in self.operations:
-            r = np.random.uniform(0, 1)
-            if r < operation.p:
-                image, target = operation.perform(image, target, self.target_type)
-                break
+        image, target = self._random_operation(image, target)
         image = self.resize_to_fixed(image)
         if self.target_type in ("segment_class", "segement_object"):
             target = self.resize_to_fixed(target)
@@ -357,6 +355,23 @@ class ImageProcesser:
         if self.target_type in ("segement_class", "segment_object"):
             target = Image.open(target)
         return target
+    
+    def _random_operation(self, image, target):
+        for operation in self.operations:
+            r = np.random.uniform(0, 1)
+            if r < operation.p:
+                if isinstance(operation, PixelOperation) or self.target_type == "label":
+                    image = operation.perform(image)
+                    target = target
+                elif self.target_type == "bounding_box":
+                    ...
+                elif self.target_type == "pose":
+                    ...
+                else:
+                    ...
+                break
+        return image, target 
+        
         
     def __repr__(self):
         return f"ImageDataset(image:{len(self.image_sources)}, operation: {len(self.operations)})"

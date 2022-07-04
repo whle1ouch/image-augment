@@ -7,6 +7,7 @@ import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from typing_extensions import Literal
 from .operation import PixelOperation
+from .utilies import scan_images
 
 
 
@@ -72,150 +73,16 @@ class ImageDataset:
         self.n_job = n_job
         self.output_target_file = None
         self.image_sources = list()
-        
 
-    def scan_directory(self, base_directory):
-        if not (os.path.exists(base_directory) and os.path.isdir(base_directory)):
-            raise IOError(f"there is no such directory named {base_directory}.")
-        if self.target_type != "label":
-            raise ValueError(f"'scan_directory only can be used for label type dataset'")
-        image_sources = []
-        for directory in glob.glob(os.path.join(base_directory, "*")):
-            if directory == self.output_directory:
-                continue
-            label = os.path.basename(directory)
-            self._target.add(label)
-            file_list = self.scan_images(directory)
-            for file in file_list:
-                image_sources.append(ImageSource(path=file, label=label))
-        self.image_sources =  image_sources
-    
-        
-    
-    def scan_voc(self, base_directory, skip_difficult=True):
-        if not (os.path.exists(base_directory) and os.path.isdir(base_directory)):
-            raise IOError(f"there is no such directory named {base_directory}.")
-        image_sources = list()
-        annotation_directory = os.path.join(base_directory, self._voc_annotation)
-        jpg_directory = os.path.join(base_directory, self._voc_images)
-        class_directory = os.path.join(base_directory, self._voc_segclass)
-        object_directory = os.path.join(base_directory, self._voc_segobject)
-        
-        
-        for xml_file in glob.glob(os.path.join(annotation_directory, "*.xml")):
-            try:
-                with open(xml_file, encoding='utf-8') as file:
-                    tree = ET.parse(file)
-            except IOError as e:
-                print(f"can't read the file {xml_file}: {e.message}.")
-                continue
-            root = tree.getroot()
-            image_file = root.find("filename").text
-            image_path = os.path.join(jpg_directory, image_file)
-            if self.target_type == "label":
-                obj_list = root.findall("object")
-                if len(obj_list) != 1:
-                    continue
-                obj = obj_list[0]
-                if obj.find("difficult") is None:
-                    difficult = 0
-                else:
-                    difficult = int(obj.find("difficult").text)
-                if skip_difficult and difficult == 1:
-                        continue
-                obj_label = obj.find("name").text
-                self._target.add(obj_label)
-                image_sources.append(ImageSource(path=image_path, label=obj_label))
-            elif self.target_type == "bounding_box":
-                bnd_boxes = list()
-                for obj in root.iter("object"):
-                    if obj.find("difficult") is None:
-                        difficult = 0
-                    else:
-                        difficult = int(obj.find("difficult").text)
-                    if skip_difficult and difficult == 1:
-                        continue
-                    bnd_label = obj.find("name").text
-                    self._target.add(bnd_label)
-                    xml_box = obj.find('bndbox')
-                    box = (int(xml_box.find('xmin').text), int(xml_box.find('ymin').text), 
-                            int(xml_box.find('xmax').text), int(xml_box.find('ymax').text))
-                    bnd_boxes.append([bnd_label, box])
-                if len(bnd_boxes) > 0:
-                    image_sources.append(ImageSource(path=image_path, bounding_box=bnd_boxes))
-            elif self.target_type == "pose":
-                pose_parts = list()
-                for obj in root.iter("object"):
-                    if obj.find("pose") is None:
-                        continue
-                    pose = obj.find("pose").text
-                    self._target.add(pose)
-                    if obj.find("difficult") is None:
-                        difficult = 0
-                    else:
-                        difficult = int(obj.find("difficult").text)
-                    if skip_difficult and difficult == 1:
-                        continue
-                    parts = list()
-                    for part in obj.iter("part"):
-                        part_label = part.find("name").text
-                        self._target.add(part_label)
-                        box_xml = part.find("bndbox")
-                        part_box = (int(box_xml.find('xmin').text), int(box_xml.find('ymin').text), 
-                                    int(box_xml.find('xmax').text), int(box_xml.find('ymax').text))
-                        parts.append([part_label, part_box])
-                    if len(parts) > 0:
-                        pose_parts.append([pose, parts])
-                if len(pose_parts) > 0:
-                    image_sources.append(ImageSource(path=image_path, pose=pose_parts))     
-            else:
-                segemented = root.find("segmented")
-                if segemented is None or int(segemented.text) == 0:
-                    continue
-                if self.target_type == "segement_class":
-                    class_path = os.path.join(class_directory, image_file)
-                    image_sources.append(ImageSource(path=image_path, segment_class=class_path))
-                else:
                     
-                    object_path = os.path.join(object_directory, image_file)
-                    image_sources.append(ImageSource(path=image_path, segement_object=object_path))
-        self.image_sources =  image_sources
-        
-    def load(self, base_directory):
-        base_path = os.path.abspath(base_directory)
+    
+    def _check_load_directoy(self, directory):
+        base_path = os.path.abspath(directory)
         if not os.path.exists(base_path) or (not os.path.isdir(base_path)):
             raise ValueError(f"{base_path} is not existed or is not a directory")
         label_path = os.path.join(base_path, "label")
-        image_sources = list()
-        if self.target_type in ("pose", "label", "bounding_box"):
-            label_file = os.path.join(label_path, 'label.txt')
-            with open(label_file, "r", encoding="utf-8") as file:
-                lines = file.readlines()
-            for line in lines:
-                try:
-                    image_path, target = self._parse(line)
-                    if len(image_path) > 0 and len(target) > 0:
-                        image_source = ImageSource(path=image_path)
-                        image_source.__setattr__(self.target_type, target)
-                        image_sources.append(image_source)
-                except Exception as e:
-                    print(f"fail to read line as '{line}': {e.args}.")
-        else:
-            image_files = set([os.path.basename(path) for path in  self.scan_images(base_path)])
-            label_files = set([os.path.basename(path) for path in  self.scan_images(label_path)])
-            valid_files = image_files & label_files
-            for file in valid_files:
-                image_source = ImageSource(path=os.path.join(base_path, file))
-                image_source.__setattr__(self.target_type, os.path.join(label_path, file))
-                image_sources.append(image_source)
-        self.image_sources = image_sources
-                
         
-    def set_output_directory(self, directory):
-        try:
-            self.output_directory = os.path.abspath(directory)
-        except TypeError as e :
-            print(f"fail to set the director of '{directory}', {e.message}")
+        
         
                 
     def _check_output_directory(self):
@@ -226,7 +93,7 @@ class ImageDataset:
                 os.mkdir(self.output_directory)
             except Exception:
                 raise IOError("no authority to make a output directory.")
-        target_path = os.path.join(self.output_directory, "label")
+        target_path = os.path.join(self.output_directory, "target")
         for path in [self.output_directory, target_path]:
             if not os.path.exists(path) or not os.path.isdir(path):
                 try:
@@ -235,7 +102,7 @@ class ImageDataset:
                     print(f"failed to create output target director of '{path}': {e.message}")
         self.output_target_file = os.path.join(target_path, "label.txt")
         if os.path.exists(self.output_target_file):
-            warnings.warn("label text file has already existed, process result may be appended from last lines.")
+            warnings.warn("label text file has already existed, processing results may be appended at the end.")
                 
     
     
@@ -244,13 +111,11 @@ class ImageDataset:
         try:
             save_name = f"{file_name}.{self.save_format}"
             image.save(os.path.join(self.output_directory, save_name))
-            if self.target_type in ("segement_class", "segement_object"):
-                target_name = f"target/{file_name}.{self.save_format}"
-                target.save(os.path.join(self.output_directory, target_name))
-            else:
-                ts = self._stringify(target, save_name)
-                with open(self.output_target_file, mode="a", encoding="utf-8") as file:
-                    file.write(ts)
+            rs = self.dump_target(target, save_name)
+            target_name = f"target/{file_name}.{self.save_format}"
+            target.save(os.path.join(self.output_directory, target_name))
+            with open(self.output_target_file, mode="a", encoding="utf-8") as file:
+                file.write(rs)
         except IOError as e:
             print("Error writing %s, %s. Change save_format to PNG?" % (file_name, e.message))
             print("You can change the save format using the set_save_format(save_format) function.")
@@ -469,7 +334,7 @@ class LabelImageDataset(ImageDataset):
         for directory in glob.glob(os.path.join(base_directory, "*")):
             label = os.path.basename(directory)
             
-            file_list = self.scan_images(directory)
+            file_list = scan_images(directory)
             if len(file_list) > 0:
                 self._target.add(label)
             for file in file_list:
@@ -548,6 +413,30 @@ class ObjectImageDataset(ImageDataset):
             if len(bnd_boxes) > 0:
                 image_sources.append(ImageSource(path=image_path, bounding_box=bnd_boxes))
         self.image_sources =  image_sources
+        
+        
+    def load(self, base_directory):
+        base_path = os.path.abspath(base_directory)
+        if not os.path.exists(base_path) or (not os.path.isdir(base_path)):
+            raise ValueError(f"{base_path} is not existed or is not a directory")
+        label_path = os.path.join(base_path, "label")
+        image_sources = list()
+        label_file = os.path.join(label_path, 'label.txt')
+        with open(label_file, "r", encoding="utf-8") as file:
+            lines = file.readlines()
+        for line in lines:
+            try:
+                items = line.split(" ")
+                image_path = items[0].strip()
+                ls = [item.strip() for item in items[1:]]
+                target = items[1]
+                if len(image_path) > 0 and len(target) > 0:
+                    image_source = ImageSource(path=image_path)
+                    image_source.__setattr__(self.target_type, target)
+                    image_sources.append(image_source)
+            except Exception as e:
+                print(f"fail to read line as '{line}': {e.args}.")
+        self.image_sources = image_sources
     
 
 
@@ -595,6 +484,32 @@ class PoseImageDataset(ImageDataset):
             if len(pose_parts) > 0:
                 image_sources.append(ImageSource(path=image_path, pose=pose_parts))     
         self.image_sources =  image_sources
+        
+    def load(self, base_directory):
+        base_path = os.path.abspath(base_directory)
+        if not os.path.exists(base_path) or (not os.path.isdir(base_path)):
+            raise ValueError(f"{base_path} is not existed or is not a directory")
+        label_path = os.path.join(base_path, "label")
+        image_sources = list()
+        label_file = os.path.join(label_path, 'label.txt')
+        with open(label_file, "r", encoding="utf-8") as file:
+            lines = file.readlines()
+        for line in lines:
+            try:
+                items = line.split(" ")
+                image_path = items[0].strip()
+                ls = [item.strip() for item in items[1:]]
+                target = []
+                n = len(ls) // 5
+                for i in range(n):
+                    target.append([ls[i*5], (int(ls[i*5+1]), int(ls[i*5+2]), int(ls[i*5+3]), int(ls[i*5+4]))]) 
+                if len(image_path) > 0 and len(target) > 0:
+                    image_source = ImageSource(path=image_path)
+                    image_source.__setattr__(self.target_type, target)
+                    image_sources.append(image_source)
+            except Exception as e:
+                print(f"fail to read line as '{line}': {e.args}.")
+        self.image_sources = image_sources
     
     
     

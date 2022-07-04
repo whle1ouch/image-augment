@@ -6,7 +6,7 @@ from src.operation import *
 from skimage import transform
 import glob, os
 from xml.etree import ElementTree as ET
-from src.process import *
+from src.dataset import ObjectTarget
 from src.utilies import draw_box
 
 
@@ -24,10 +24,9 @@ if __name__ == "__main__":
     # plt.subplot(1, 2, 2)
     # plt.imshow(new_image)
     # plt.show()
-    
-    a = dict()
-    a['1'] = 1
-    a.popitem()
-    print(a) 
-
-    
+    a = ObjectTarget("1", (1, 2, 3, 4))
+    b = ObjectTarget("2", (2, 3, 4, 5))
+    c = ObjectTarget("3", (5, 6, 7, 8))
+    b.c = c
+    a.c = b
+    print(a.all_boxes())

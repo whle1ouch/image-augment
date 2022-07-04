@@ -17,11 +17,11 @@ class ImageSource:
     path: str = None
     pil: Image = None
     label: str = None
+    pose: dict = None
+    ground_truth: list = None
     bounding_box: list = None
-    pose: list = None
     segment_class: str = None
     segment_object: str = None 
-    ground_truth: list = None 
     
     def __repr__(self):
         s = []
@@ -31,17 +31,23 @@ class ImageSource:
             s.append(f"pil=PILImage({self.pil.size})")
         if self.label is not None:
             s.append(f"label={self.label}")
+        if self.pose is not None:
+            s.append(f"pose={list(self.part.keys())}")
+        if self.ground_truth is not None:
+            s.append(f"ground_truth={list(self.ground_truth.keys())}")
         if self.bounding_box is not None:
             s.append(f"bounding_box={self.bounding_box}")
-        if self.pose is not None:
-            s.append(f"pose={self.pose}")
         if self.segment_class is not None:
             s.append(f"segement_class='{self.segment_class}'")
         if self.segment_object is not None:
             s.append(f"segment_object='{self.segment_object}'")
-        if self.ground_truth is not None:
-            s.append(f"ground_truth={self.ground_truth}")
         return f"ImageSource({','.join(s)})"
+
+
+            
+    
+    
+        
 
 
 DatasetType = Literal["label", "object", "pose", "segment_class", "segment_object"]
@@ -75,16 +81,6 @@ class ImageDataset:
         self.image_sources = list()
 
                     
-    
-    def _check_load_directoy(self, directory):
-        base_path = os.path.abspath(directory)
-        if not os.path.exists(base_path) or (not os.path.isdir(base_path)):
-            raise ValueError(f"{base_path} is not existed or is not a directory")
-        label_path = os.path.join(base_path, "label")
-        
-        
-        
-                
     def _check_output_directory(self):
         if self.output_directory is None:
             raise ValueError("no output direcotry to save iamge, use 'set_output_directory' firstly.")
@@ -122,7 +118,7 @@ class ImageDataset:
             print("By passing save_format=\"auto\", Augmentor can save in the correct format automatically.")
     
     
-    def _stringify(self, target, save_name):
+    def dump_target(self, target, save_name):
         if self.target_type == "label":
             return " ".join(["\n", save_name, target])
         elif self.target_type == "bounding_box":
@@ -142,22 +138,41 @@ class ImageDataset:
             return "\n" + " ".join(st)
         else:
             raise AttributeError(f"target of {self.target_type} can not be stringfied")
-            
     
-    def _parse(self, line):
-        items = line.split(" ")
-        image_path = items[0].strip()
-        ls = [item.strip() for item in items[1:]]
+    def load(self, base_directory):
+        base_path = os.path.abspath(base_directory)
+        if not os.path.exists(base_path) or (not os.path.isdir(base_path)):
+            raise ValueError(f"{base_path} is not existed or is not a directory")
+        label_path = os.path.join(base_path, "label")
+        image_sources = list()
+        label_file = os.path.join(label_path, 'label.txt')
+        with open(label_file, "r", encoding="utf-8") as file:
+            lines = file.readlines()
+        for line in lines:
+            try:
+                items = [item.strip() for item in  line.split(" ")]
+                image_path = items[0]
+                target = self.parse_target(items[1:])
+                if len(image_path) > 0 and len(target) > 0:
+                    image_source = ImageSource(path=image_path)
+                    image_source.__setattr__(self.target_type, target)
+                    image_sources.append(image_source)
+            except Exception as e:
+                print(f"fail to read line as '{line}': {e.args}.")
+        self.image_sources = image_sources
+    
+    def parse_target(self, items):
         if self.target_type == "label":
-            target = items[1]
+            target = items[0]
         elif self.target_type == "bounding_box":
             target = []
-            n = len(ls) // 5
+            n = len(items) // 5
             for i in range(n):
-                target.append([ls[i*5], (int(ls[i*5+1]), int(ls[i*5+2]), int(ls[i*5+3]), int(ls[i*5+4]))])
+                target.append([items[i*5], (int(items[i*5+1]), int(items[i*5+2]),
+                                            int(items[i*5+3]), int(items[i*5+4]))])
         elif self.target_type == "pose":
             target = []
-            for pose_string in ls:
+            for pose_string in items:
                 pose_items = pose_string.split("/")
                 pose_label = pose_items[0]
                 part_list = pose_items[1:]
@@ -171,8 +186,7 @@ class ImageDataset:
                 target.append([pose_label, pose_parts])
         else:
             raise AttributeError(f"lines can not be parsed as {self.target_type}")
-        print(image_path, target)
-        return image_path, target
+        return target
                     
     
     
@@ -373,7 +387,6 @@ class LabelImageDataset(ImageDataset):
             obj_label = obj.find("name").text
             self._target.add(obj_label)
             image_sources.append(ImageSource(path=image_path, label=obj_label))
-           
         self.image_sources =  image_sources
     
 
@@ -396,7 +409,9 @@ class ObjectImageDataset(ImageDataset):
             root = tree.getroot()
             image_file = root.find("filename").text
             image_path = os.path.join(jpg_directory, image_file)
+            gt = list()
             bnd_boxes = list()
+            index = 0
             for obj in root.iter("object"):
                 if obj.find("difficult") is None:
                     difficult = 0
@@ -405,14 +420,14 @@ class ObjectImageDataset(ImageDataset):
                 if skip_difficult and difficult == 1:
                     continue
                 bnd_label = obj.find("name").text
-                self._target.add(bnd_label)
                 xml_box = obj.find('bndbox')
                 box = (int(xml_box.find('xmin').text), int(xml_box.find('ymin').text), 
                         int(xml_box.find('xmax').text), int(xml_box.find('ymax').text))
-                bnd_boxes.append([bnd_label, box])
-            if len(bnd_boxes) > 0:
-                image_sources.append(ImageSource(path=image_path, bounding_box=bnd_boxes))
-        self.image_sources =  image_sources
+                gt.append({"label": bnd_label, "index": index})
+                bnd_boxes.append(box)
+                index += 1
+                image_sources.append(ImageSource(path=image_path, ground_truth=gt, bounding_box=bnd_boxes))
+        self.image_sources = image_sources
         
         
     def load(self, base_directory):
@@ -459,30 +474,41 @@ class PoseImageDataset(ImageDataset):
             root = tree.getroot()
             image_file = root.find("filename").text
             image_path = os.path.join(jpg_directory, image_file)
-            pose_parts = list()
+            pose_objects = list()
+            bnd_boxes = []
+            index = 0
             for obj in root.iter("object"):
                 if obj.find("pose") is None:
                     continue
-                pose = obj.find("pose").text
-                self._target.add(pose)
+                pose_label = obj.find("pose").text
+                if pose_label == "Unspecified":
+                    continue
+                self._target.add(pose_label)
                 if obj.find("difficult") is None:
                     difficult = 0
                 else:
                     difficult = int(obj.find("difficult").text)
                 if skip_difficult and difficult == 1:
                     continue
-                parts = list()
+                pose_xml = obj.find("bndbox")
+                pose_box = (int(pose_xml.find('xmin').text), int(pose_xml.find('ymin').text), 
+                            int(pose_xml.find('xmax').text), int(pose_xml.find('ymax').text))
+                pose_dict = {"label": pose_label, "index": index}
+                bnd_boxes.append(pose_box)
+                index += 1
+                pose_parts = list()
                 for part in obj.iter("part"):
                     part_label = part.find("name").text
-                    self._target.add(part_label)
                     box_xml = part.find("bndbox")
                     part_box = (int(box_xml.find('xmin').text), int(box_xml.find('ymin').text), 
                                 int(box_xml.find('xmax').text), int(box_xml.find('ymax').text))
-                    parts.append([part_label, part_box])
-                if len(parts) > 0:
-                    pose_parts.append([pose, parts])
-            if len(pose_parts) > 0:
-                image_sources.append(ImageSource(path=image_path, pose=pose_parts))     
+                    pose_parts.append({"label": part_label, "index": index})
+                    bnd_boxes.append(part_box)
+                    index += 1
+                pose_dict["part"] = pose_parts
+                pose_objects.append(pose_dict)
+            if len(pose_objects) > 0:
+                image_sources.append(ImageSource(path=image_path, pose=pose_objects, bounding_box=bnd_boxes))     
         self.image_sources =  image_sources
         
     def load(self, base_directory):
@@ -519,10 +545,10 @@ class SegmentImageDataset(ImageDataset):
         if not (os.path.exists(base_directory) and os.path.isdir(base_directory)):
             raise IOError(f"there is no such directory named {base_directory}.")
         image_sources = list()
-        annotation_directory = os.path.join(base_directory, self._voc_annotation)
-        jpg_directory = os.path.join(base_directory, self._voc_images)
-        class_directory = os.path.join(base_directory, self._voc_segclass)
-        object_directory = os.path.join(base_directory, self._voc_segobject)
+        annotation_directory = os.path.join(base_directory, _voc_annotation)
+        jpg_directory = os.path.join(base_directory, _voc_images)
+        class_directory = os.path.join(base_directory, _voc_segclass)
+        object_directory = os.path.join(base_directory, _voc_segobject)
         
         
         for xml_file in glob.glob(os.path.join(annotation_directory, "*.xml")):

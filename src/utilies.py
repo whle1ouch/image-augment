@@ -38,4 +38,3 @@ def scan_images(direcotry):
             list_of_files.extend(glob.glob(os.path.join(os.path.abspath(direcotry), file_type)))
     return list_of_files
     
-    # 

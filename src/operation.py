@@ -338,6 +338,11 @@ class VerticalFlip(MorphOperation):
         out, out_segment = self.perform_batch([image, segment])
         return out, out_segment
         
+        
+
+    
+        
+        
 class Scale(MorphOperation):
     
     def __init__(self, p, scale_factor=None, keep_shape=True):
@@ -381,7 +386,48 @@ class Scale(MorphOperation):
     def perform_with_segment(self, image, segment):
         out, out_segment = self.perform_batch([image, segment])
         return out, out_segment
+
+class FixScale(MorphOperation):
+    
+    def __init__(self, p, size):
+        super().__init__(p)
+        self.size = size
+        
+        
+    def perform(self, image):
+        w, h = image.size
+        iw, ih = self.size
+        scale = min(iw / w, ih / h)
+        new_w, new_h = round(scale * w), round(scale * h)
+        resized = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
+        out = Image.new(mode=image.mode, size=self.fixed_size)
+        out.paste(resized, ((iw - new_w) // 2, (ih - new_h) // 2))
+        return out
+    
+    def perform_with_box(self, image, boxes):
+        w, h = image.size
+        iw, ih = self.size
+        scale_factor = min(iw / w, ih / h)
+        new_w, new_h = round(scale_factor * w), round(scale_factor * h)
+        resized = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
+        out = Image.new(mode=image.mode, size=self.fixed_size)
+        shift_x, shift_y = (iw - new_w) // 2, (ih - new_h) // 2
+        out.paste(resized, (shift_x, shift_y))
+        scale_boxes = []
+        for box in boxes:
+            if len(box) == 4:
+                xmin, ymin, xmax, ymax = map(lambda x: int(x * scale_factor), box)
+                scale_boxes.append((xmin + shift_x, ymin+shift_y, xmax+shift_x, ymax+shift_y))
+            else:
+                scale_boxes.append(())
                 
+        return out, scale_boxes
+    
+    
+    def perform_with_segment(self, image, segment):
+        out, out_segment = self.perform_batch([image, segment])
+        return out, out_segment
+        
 
         
 class RandomScale(MorphOperation):

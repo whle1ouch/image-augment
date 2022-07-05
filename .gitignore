@@ -4,4 +4,4 @@ data/*
 .idea/misc.xml
 .idea/inspectionProfiles/profiles_settings.xml
 .idea/modules.xml
-src/__pycache__/__init__.cpython-39.pyc
+src/__pycache__/*

@@ -8,10 +8,11 @@ from xml.etree import ElementTree as ET
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from typing_extensions import Literal
-from .operation import PixelOperation
+from .operation import FixScale
 from .utilies import scan_images
 
 
+__all__ = ("LabelImageSet", "ObjectImageSet", "PoseImageSet", "SegmentClassImageSet", "SegmentObjectImageSet")
 
 @dataclass
 class ImageSource:
@@ -45,14 +46,6 @@ class ImageSource:
             s.append(f"segment_object='{self.segment_object}'")
         return f"ImageSource({','.join(s)})"
 
-
-            
-DatasetType = Literal["label", "object", "pose", "segment_class", "segment_object"]
-LABEL:DatasetType = "label"
-OBJECT:DatasetType = "object"
-POSE:DatasetType = "pose"
-SEGMENT_CLASS:DatasetType = "segment_class"
-SEGMENT_OBJECT:DatasetType = "segment_object"
         
 _voc_annotation = "Annotations"
 _voc_images = "JPEGImages"
@@ -180,7 +173,8 @@ class LabelImageSet:
             raise ValueError("no image data.")
         target = self.get_target(image_source)
         image, target = self._random_operation(image, target)
-        image, target = self.resize_to_fixed(image, target)
+        if self.fixed_size is not None:
+            image, target = self.resize_to_fixed(image, target)
         if save_to_disk:
             self.save_image(image, target)
         return image, target
@@ -254,15 +248,8 @@ class LabelImageSet:
         self.operations.pop(operation_index)
     
     def resize_to_fixed(self, pil, target):
-        if self.fixed_size is None:
-            return pil, target
-        w, h = pil.size
-        iw, ih = self.fixed_size
-        scale = min(iw / w, ih / h)
-        new_w, new_h = round(scale * w), round(scale * h)
-        resized = pil.resize((new_w, new_h), Image.Resampling.BICUBIC)
-        new_pil = Image.new(mode=pil.mode, size=self.fixed_size)
-        new_pil.paste(resized, ((iw - new_w) // 2, (ih - new_h) // 2))
+        op = FixScale(0, size=self.fixed_size)
+        new_pil = op.perform(pil)
         return new_pil, target
         
         
@@ -381,6 +368,13 @@ class ObjectImageSet(LabelImageSet):
                 image, bnds = operation.perform_with_box(image, bnds)
                 target = target
         return image, (gts, bnds) 
+    
+    def resize_to_fixed(self, pil, target):
+        op = FixScale(0, size=self.fixed_size)
+        gts, bnds = target
+        new_pil, bnds = op.perform_with_box(pil, bnds)
+        return new_pil, (gts, bnds)
+        
     
         
             
@@ -512,7 +506,13 @@ class PoseImageSet(LabelImageSet):
             if r < operation.probability:
                 image, bnds = operation.perform_with_box(image, bnds)
                 target = target
-        return image, (pose, gts, bnds) 
+        return image, (pose, gts, bnds)
+    
+    def resize_to_fixed(self, pil, target):
+        op = FixScale(0, size=self.fixed_size)
+        pose, gts, bnds = target
+        new_pil, bnds = op.perform_with_box(pil, bnds)
+        return new_pil, (pose, gts, bnds)
     
     
 class SegmentClassImageSet(LabelImageSet):
@@ -608,9 +608,12 @@ class SegmentClassImageSet(LabelImageSet):
                 image, target = operation.perform_with_segment(image, target)
                 target = target
         return image, target
-
     
-
+    def resize_to_fixed(self, pil, target):
+        op = FixScale(0, size=self.fixed_size)
+        new_pil, new_target = op.perform_with_segment(pil, new_target)
+        return new_pil, new_target
+ 
 class SegmentObjectImageSet(SegmentClassImageSet):
      
     _segment_name = "segment_object"

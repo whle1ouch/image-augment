@@ -279,20 +279,18 @@ class ImageDataset:
             raise AttributeError(f"target of {self.target_type} can not be stringfied")
             
     
-    def _parse(self, line):
-        items = line.split(" ")
-        image_path = items[0].strip()
-        ls = [item.strip() for item in items[1:]]
+    def parse_target(self, items):
         if self.target_type == "label":
-            target = items[1]
+            target = items[0]
         elif self.target_type == "bounding_box":
             target = []
-            n = len(ls) // 5
+            n = len(items) // 5
             for i in range(n):
-                target.append([ls[i*5], (int(ls[i*5+1]), int(ls[i*5+2]), int(ls[i*5+3]), int(ls[i*5+4]))])
+                target.append([items[i*5], (int(items[i*5+1]), int(items[i*5+2]),
+                                            int(items[i*5+3]), int(items[i*5+4]))])
         elif self.target_type == "pose":
             target = []
-            for pose_string in ls:
+            for pose_string in items:
                 pose_items = pose_string.split("/")
                 pose_label = pose_items[0]
                 part_list = pose_items[1:]
@@ -306,8 +304,7 @@ class ImageDataset:
                 target.append([pose_label, pose_parts])
         else:
             raise AttributeError(f"lines can not be parsed as {self.target_type}")
-        print(image_path, target)
-        return image_path, target
+        return target
                     
     
     

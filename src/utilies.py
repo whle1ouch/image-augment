@@ -1,4 +1,4 @@
-import os
+import os, glob
 from PIL import Image, ImageDraw
 import matplotlib.pyplot as plt
 

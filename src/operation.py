@@ -24,7 +24,7 @@ class Operation(object):
         raise ValueError("""this operation may change the coordinate of each pixel in the image, 
                           and this function is not implemented.""")
          
-    def perform_with_segement(self, image, segement):
+    def perform_with_segment(self, image, segment):
         raise ValueError("""this operation may change the coordinate of each pixel in the image, 
                           and this function is not implemented.""")
          
@@ -35,9 +35,9 @@ class PixelOperation(Operation):
         new_image = self.perform(image)
         return new_image, boxes
     
-    def perform_with_segement(self, image, segement):
+    def perform_with_segment(self, image, segment):
         out = self.perform(image)
-        return image, segement
+        return image, segment
         
 
 class MorphOperation(Operation):
@@ -302,13 +302,16 @@ class HorizontalFlip(MorphOperation):
         w, _ = image.size
         flip_box = []
         for box in boxes:
-            xmin, ymin, xmax, ymax = box
-            flip_box.append((w - xmax, ymin, w-xmin, ymax))
+            if len(box) == 4:
+                xmin, ymin, xmax, ymax = box
+                flip_box.append((w - xmax, ymin, w-xmin, ymax))
+            else:
+                flip_box.append(())
         return out, flip_box
     
-    def perform_with_segement(self, image, segement):
-        out, out_segement = self.perform_batch([image, segement])
-        return out, out_segement
+    def perform_with_segment(self, image, segment):
+        out, out_segment = self.perform_batch([image, segment])
+        return out, out_segment
     
     
     
@@ -324,13 +327,16 @@ class VerticalFlip(MorphOperation):
         _, h = image.size
         flip_box = []
         for box in boxes:
-            xmin, ymin, xmax, ymax = box
-            flip_box.append((xmin, h - ymax, xmax, h - ymin))
+            if len(box) == 4:
+                xmin, ymin, xmax, ymax = box
+                flip_box.append((xmin, h - ymax, xmax, h - ymin))
+            else:
+                flip_box.append(())
         return out, flip_box
 
-    def perform_with_segement(self, image, segement):
-        out, out_segement = self.perform_batch([image, segement])
-        return out, out_segement
+    def perform_with_segment(self, image, segment):
+        out, out_segment = self.perform_batch([image, segment])
+        return out, out_segment
         
 class Scale(MorphOperation):
     
@@ -365,13 +371,16 @@ class Scale(MorphOperation):
         else:
             shift_x, shift_y = 0, 0
         for box in boxes:
-            xmin, ymin, xmax, ymax = map(lambda x: int(x * self.scale_factor), box)
-            scale_box.append((xmin + shift_x, ymin+shift_y, xmax+shift_x, ymax+shift_y))
+            if len(box) == 4:
+                xmin, ymin, xmax, ymax = map(lambda x: int(x * self.scale_factor), box)
+                scale_box.append((xmin + shift_x, ymin+shift_y, xmax+shift_x, ymax+shift_y))
+            else:
+                scale_box.append(())
         return out, scale_box
     
-    def perform_with_segement(self, image, segement):
-        out, out_segement = self.perform_batch([image, segement])
-        return out, out_segement
+    def perform_with_segment(self, image, segment):
+        out, out_segment = self.perform_batch([image, segment])
+        return out, out_segment
                 
 
         
@@ -417,15 +426,18 @@ class RandomScale(MorphOperation):
         else:
             shift_x, shift_y = 0, 0
         for box in boxes:
-            xmin, ymin, xmax, ymax = box
-            xmin, xmax = int(xmin * self.scale_w), int(xmax * self.scale_w) 
-            ymin, ymax = int(ymin * self.scale_h), int(ymax * self.scale_h)
-            scale_box.append((xmin + shift_x, ymin+shift_y, xmax+shift_x, ymax+shift_y))
+            if len(box) == 4:
+                xmin, ymin, xmax, ymax = box
+                xmin, xmax = int(xmin * self.scale_w), int(xmax * self.scale_w) 
+                ymin, ymax = int(ymin * self.scale_h), int(ymax * self.scale_h)
+                scale_box.append((xmin + shift_x, ymin+shift_y, xmax+shift_x, ymax+shift_y))
+            else:
+                scale_box.append(())
         return out, scale_box
     
-    def perform_with_segement(self, image, segement):
+    def perform_with_segment(self, image, segment):
         self.random_sample(image)
-        return self.do(image), self.do(segement)
+        return self.do(image), self.do(segment)
     
     
         
@@ -461,16 +473,21 @@ class RandomTranslation(MorphOperation):
         w, h = image.size
         trans_boxes = []
         for box in boxes:
-            xmin, ymin, xmax, ymax = box
-            xmin, xmax = max(xmin+self.trans_w, 0), min(xmax+self.trans_w, w-1)
-            ymin, ymax = max(ymin+self.trans_h, 0), min(ymax+self.trans_h, h-1)
-            if xmin < xmax and ymin < ymax:
-                trans_boxes.append((xmin, ymin, xmax, ymax))
+            if len(box) == 4:
+                xmin, ymin, xmax, ymax = box
+                xmin, xmax = max(xmin+self.trans_w, 0), min(xmax+self.trans_w, w-1)
+                ymin, ymax = max(ymin+self.trans_h, 0), min(ymax+self.trans_h, h-1)
+                if xmin < xmax and ymin < ymax:
+                    trans_boxes.append((xmin, ymin, xmax, ymax))
+                else:
+                    trans_boxes.append(())
+            else:
+                trans_boxes.append(())
         return out, trans_boxes 
     
-    def perform_with_segement(self, image, segement):
+    def perform_with_segment(self, image, segment):
         self.random_sample(image)
-        return self.do(image), self.do(segement)
+        return self.do(image), self.do(segment)
     
 class RandomColor(PixelOperation):
     
@@ -627,25 +644,29 @@ class PerspectiveTransform(MorphOperation):
         perspective_box = list()
         w, h = image.size
         for box in boxes:
-            left, top, right, bottom = box
-            points = np.array([[left, top], [left, bottom], [right, top], [right, bottom]], dtype=np.float32)
-            new_points = cv2.perspectiveTransform(points.reshape((-1, 1, 2)), self._matrix)
-            new_points = new_points.reshape((4, 2))
-            print(len(new_points), len(new_points[0]))
-            left = min(new_points[0, 0], new_points[1, 0])
-            top = min(new_points[0, 1], new_points[2, 1])
-            right = max(new_points[2, 0], new_points[3, 0])
-            bottom = max(new_points[1, 1], new_points[3, 1])
-            left, right = max(0, left), min(right, w-1)
-            top, bottom = max(0, top), min(bottom, h-1)
-            if left >= right or top >= bottom:
-                continue
-            perspective_box.append((left, top, right, bottom))
+            if len(box) == 4:
+                left, top, right, bottom = box
+                points = np.array([[left, top], [left, bottom], [right, top], [right, bottom]], dtype=np.float32)
+                new_points = cv2.perspectiveTransform(points.reshape((-1, 1, 2)), self._matrix)
+                new_points = new_points.reshape((4, 2))
+                print(len(new_points), len(new_points[0]))
+                left = min(new_points[0, 0], new_points[1, 0])
+                top = min(new_points[0, 1], new_points[2, 1])
+                right = max(new_points[2, 0], new_points[3, 0])
+                bottom = max(new_points[1, 1], new_points[3, 1])
+                left, right = max(0, left), min(right, w-1)
+                top, bottom = max(0, top), min(bottom, h-1)
+                if left >= right or top >= bottom:
+                    perspective_box.append(())
+                else:
+                    perspective_box.append((left, top, right, bottom))
+            else:
+                perspective_box.append(())
         return out, perspective_box
     
-    def perform_with_segement(self, image, segement):
+    def perform_with_segment(self, image, segment):
         self.random_sample(image)
-        return self.do(image), self,do(segement)
+        return self.do(image), self.do(segment)
              
                
         
@@ -731,19 +752,22 @@ class Crop(Operation):
         out.paste(croped, (left_crop + w_shift, top_crop + h_shift))
         crop_boxes = []
         for box in boxes:
-            left, top, right, bottom = box
-            left, right = max(left, left_crop), min(right, w - right_crop)
-            top, bottom = max(top, top_crop), min(bottom, h - bottom_crop)
-            if left >= right or top >= bottom:
-                continue
-            left, right = left + w_shift, right + w_shift
-            top, bottom = top + h_shift, bottom + h_shift
-            crop_boxes.append((left, top, right, bottom))
+            if len(box) == 4:
+                left, top, right, bottom = box
+                left, right = max(left, left_crop), min(right, w - right_crop)
+                top, bottom = max(top, top_crop), min(bottom, h - bottom_crop)
+                if left >= right or top >= bottom:
+                    continue
+                left, right = left + w_shift, right + w_shift
+                top, bottom = top + h_shift, bottom + h_shift
+                crop_boxes.append((left, top, right, bottom))
+            else:
+                crop_boxes.append(())
         return out, crop_boxes
     
-    def perform_with_segement(self, image, segement):
-        out, out_segement = self.perform_batch([image, segement])
-        return out, out_segement
+    def perform_with_segment(self, image, segment):
+        out, out_segment = self.perform_batch([image, segment])
+        return out, out_segment
         
         
 
@@ -799,19 +823,22 @@ class RandomCrop(Operation):
         w, h = image.size
         crop_boxes = []
         for box in boxes:
-            left, top, right, bottom = box
-            left, right = max(left, self._crop_left), min(right, w - self._crop_right)
-            top, bottom = max(top, self._crop_top), min(bottom, h - self._crop_bottom)
-            if left >= right or top >= bottom:
-                continue
-            left, right = left + self._shift_w, right + self._shift_w
-            top, bottom = top + self._shift_h, bottom + self._shift_h
-            crop_boxes.append((left, top, right, bottom))
+            if len(box) == 4:
+                left, top, right, bottom = box
+                left, right = max(left, self._crop_left), min(right, w - self._crop_right)
+                top, bottom = max(top, self._crop_top), min(bottom, h - self._crop_bottom)
+                if left >= right or top >= bottom:
+                    continue
+                left, right = left + self._shift_w, right + self._shift_w
+                top, bottom = top + self._shift_h, bottom + self._shift_h
+                crop_boxes.append((left, top, right, bottom))
+            else:
+                crop_boxes.append(())
         return out, crop_boxes
     
-    def perform_with_segement(self, image, segement):
+    def perform_with_segment(self, image, segment):
         self.random_sample()
-        return self.do(image), self.do(segement)
+        return self.do(image), self.do(segment)
         
         
 
